@@ -1,0 +1,78 @@
+# APPLAB CHAT BOT CODE
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import HTMLResponse
+import fitz  # PyMuPDF for PDF text extraction
+import openai
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import os
+from fastapi.staticfiles import StaticFiles
+
+# Initialize FastAPI app
+app = FastAPI()
+
+# Mount static files (for frontend UI)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Load OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Load Sentence Transformer model
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# FAISS index for vector search
+dimension = 384
+index = faiss.IndexFlatL2(dimension)
+documents = []
+
+# Extract text from PDF
+def extract_text_from_pdf(pdf_file):
+    doc = fitz.open(stream=pdf_file.file.read(), filetype="pdf")
+    return "\n".join([page.get_text("text") for page in doc])
+
+# Serve the frontend
+@app.get("/", response_class=HTMLResponse)
+def serve_frontend():
+    with open("static/index.html", "r") as f:
+        return HTMLResponse(content=f.read())
+
+# Upload PDF endpoint
+@app.post("/upload/")
+def upload_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    text = extract_text_from_pdf(file)
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No text found in PDF")
+
+    text_embeddings = embedding_model.encode([text])
+    doc_id = len(documents)
+    documents.append(text)
+    index.add(np.array(text_embeddings, dtype=np.float32))
+    
+    return {"message": "PDF uploaded successfully", "doc_id": doc_id}
+
+# Chatbot endpoint
+@app.post("/chat/")
+def chat_with_bot(query: str = Form(...)):
+    if not documents:
+        raise HTTPException(status_code=400, detail="No documents uploaded")
+
+    query_embedding = embedding_model.encode([query])
+    D, I = index.search(np.array(query_embedding, dtype=np.float32), k=1)
+    relevant_doc = documents[I[0][0]] if I[0][0] >= 0 else "No relevant document found"
+
+    if "No relevant document found" in relevant_doc:
+        return {"answer": "The answer is not available in the uploaded PDF."}
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are an AI assistant answering questions based on a document."},
+            {"role": "user", "content": f"Document: {relevant_doc}\n\nQuestion: {query}"}
+        ]
+    )
+    return {"answer": response['choices'][0]['message']['content']}
