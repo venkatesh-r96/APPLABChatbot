@@ -1,0 +1,4 @@
+docker build -t my-fastapi-app .
+
+# Please put your API KEY in your-api-key
+docker run -p 8000:8000 -e OPENAI_API_KEY="your-api-key" my-fastapi-app
