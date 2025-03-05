@@ -1,0 +1,22 @@
+# Use Python 3.12.0-slim as base image
+FROM python:3.12.0-slim
+
+# Expose port 8000 (FastAPI default)
+EXPOSE 8000
+
+# Set working directory
+WORKDIR /app
+
+# Copy all files into the /app directory in the container
+COPY . /app
+
+# Prevent .pyc files and disable Python buffering for easier logging
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Upgrade pip and install dependencies from requirements.txt with trusted hosts
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
+
+
+# Command to run the application
+CMD ["uvicorn", "chatbot:app", "--host", "0.0.0.0", "--port", "8000"]
